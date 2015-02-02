@@ -37,6 +37,8 @@ class Chef
           @ui           = ui
         end
 
+        # Main entry.  Prompt the user to clean up any old client or node objects.  Then create
+        # the new client, then create the new node.
         def run
           sanity_check
 
@@ -49,10 +51,17 @@ class Chef
           create_node!
         end
 
+        # Tempfile to use to write newly created client credentials to.
+        #
+        # This method is public so that the knife bootstrapper can read then and pass the value into
+        # the handler for chef vault which needs the client cert we create here.
+        #
+        # We hang onto the tmpdir as an ivar as well so that it will not get GC'd and removed
+        #
+        # @return [String] path to the generated client.pem
         def client_path
           @client_path ||=
             begin
-              # use an ivar to hold onto the reference so it doesn't get GC'd
               @tmpdir = Dir.mktmpdir
               File.join(@tmpdir, "#{node_name}.pem")
             end
@@ -60,26 +69,36 @@ class Chef
 
         private
 
+        # @return [String] node name from the knife_config
         def node_name
           knife_config[:chef_node_name]
         end
 
+        # @return [String] enviroment from the knife_config
         def environment
           knife_config[:environment]
         end
 
+        # @return [String] run_list from the knife_config
         def run_list
           knife_config[:run_list]
         end
 
+        # @return [Hash,Array] Object representation of json first-boot attributes from the knife_config
         def first_boot_attributes
           knife_config[:first_boot_attributes]
         end
 
+        # @return [String] chef server url from the Chef::Config
         def chef_server_url
           chef_config[:chef_server_url]
         end
 
+        # Accesses the run_list and coerces it into an Array, changing nils into
+        # the empty Array, and splitting strings representations of run_lists into
+        # Arrays.
+        #
+        # @return [Array] run_list coerced into an array
         def normalized_run_list
           case run_list
           when nil
@@ -91,14 +110,22 @@ class Chef
           end
         end
 
+        # Create the client object and save it to the Chef API
         def create_client!
           Chef::ApiClient::Registration.new(node_name, client_path, http_api: rest).run
         end
 
+        # Create the node object (via the lazy accessor) and save it to the Chef API
         def create_node!
           node.save
         end
 
+        # Create a new Chef::Node.  Supports creating the node with its name, run_list, attributes
+        # and environment.  This injects a rest object into the Chef::Node which uses the client key
+        # for authentication so that the client creates the node and therefore we get the acls setup
+        # correctly.
+        #
+        # @return [Chef::Node] new chef node to create
         def node
           @node ||=
             begin
@@ -111,10 +138,16 @@ class Chef
             end
         end
 
+        # Check for the existence of a node and/or client already on the server.  If the node
+        # already exists, we must delete it in order to proceed so that we can create a new node
+        # object with the permissions of the new client.  There is a use case for creating a new
+        # client and wiring it up to a precreated node object, but we do currently support that.
+        #
+        # We prompt the user about what to do and will fail hard if we do not get confirmation to
+        # delete any prior node/client objects.
         def sanity_check
           if resource_exists?("nodes/#{node_name}")
             ui.confirm("Node #{node_name} exists, overwrite it")
-            # Must delete it as the client created later will not have perms to write it
             rest.delete("nodes/#{node_name}")
           end
           if resource_exists?("clients/#{node_name}")
@@ -123,6 +156,10 @@ class Chef
           end
         end
 
+        # Check if an relative path exists on the chef server
+        #
+        # @param relative_path [String] URI path relative to the chef organization
+        # @return [Boolean] if the relative path exists or returns a 404
         def resource_exists?(relative_path)
           rest.get_rest(relative_path)
           true
@@ -131,23 +168,12 @@ class Chef
           false
         end
 
-        def client_exists?
-          return @client_exists unless @client_exists.nil?
-          @client_exists =
-            begin
-              rest.get_rest("clients/#{node_name}")
-              true
-            rescue Net::HTTPServerException => e
-              raise unless e.response.code == "404"
-              false
-            end
-        end
-
-        # this is the REST client using the client's credentials instead of the user's
+        # @return [Chef::REST] REST client using the client credentials
         def client_rest
           @client_rest ||= Chef::REST.new(chef_server_url, node_name, client_path)
         end
 
+        # @return [Chef::REST] REST client using the cli user's knife credentials
         # this uses the users's credentials
         def rest
           @rest ||= Chef::REST.new(chef_server_url)
