@@ -200,14 +200,22 @@ class Chef
         :boolean     => true
 
       option :vault_file,
-        :short       => '-L VAULT_FILE',
-        :long        => '--vault-file',
-        :description => 'A JSON file with a list of vault'
+        :long        => '--vault-file VAULT_FILE',
+        :description => 'A JSON file with a list of vault(s) and item(s) to be updated'
 
       option :vault_list,
-        :short       => '-l VAULT_LIST',
         :long        => '--vault-list VAULT_LIST',
-        :description => 'A JSON string with the vault to be updated'
+        :description => 'A JSON string with the vault(s) and item(s) to be updated'
+
+      option :vault_item,
+        :long        => '--vault-item VAULT_ITEM',
+        :description => 'A single vault and item to update as "vault:item"',
+        :proc        => Proc.new { |i|
+          (vault, item) = i.split(/:/)
+          vault_item ||= {}
+          vault_item[vault] ||= []
+          vault_item[vault].push(item)
+        }
 
       def initialize(argv=[])
         super
@@ -304,7 +312,7 @@ class Chef
 
         # chef-vault integration must use the new client-side hawtness, otherwise to use the
         # new client-side hawtness, just delete your validation key.
-        if config[:vault_list] || config[:vault_file] || !File.exist?(File.expand_path(Chef::Config[:validation_key]))
+        if chef_vault_handler.doing_chef_vault? || !File.exist?(File.expand_path(Chef::Config[:validation_key]))
           client_builder.run
 
           chef_vault_handler.run(node_name: config[:chef_node_name])

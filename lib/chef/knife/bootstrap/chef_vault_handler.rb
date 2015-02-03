@@ -16,11 +16,6 @@
 # limitations under the License.
 #
 
-require 'chef/node'
-require 'chef/rest'
-require 'chef/api_client/registration'
-require 'chef/api_client'
-
 class Chef
   class Knife
     class Bootstrap < Knife
@@ -35,22 +30,21 @@ class Chef
         # @return [String] name of the node (technically name of the client)
         attr_reader :node_name
 
-        #
         # @param knife_config [Hash] knife merged config, typically @config
         # @param ui [Chef::Knife::UI] ui object for output
-        #
         def initialize(knife_config: {}, ui: nil)
           @knife_config = knife_config
           @ui           = ui
         end
 
-        #
         # Updates the chef vault items for the newly created node.
         #
         # @param node_name [String] name of the node (technically name of the client)
         # @todo: node_name should be mandatory (ruby 2.0 compat)
         def run(node_name: nil)
-          return unless vault_list || vault_file
+          return unless doing_chef_vault?
+
+          sanity_check
 
           @node_name = node_name
 
@@ -59,7 +53,6 @@ class Chef
           update_vault_list!
         end
 
-        #
         # Iterate through all the vault items to update.  Items may be either a String
         # or an Array of Strings:
         #
@@ -76,57 +69,85 @@ class Chef
           end
         end
 
+        # @return [Boolean] if we've got chef vault options to act on or not
+        def doing_chef_vault?
+          !!(vault_list || vault_file || vault_item)
+        end
+
         private
 
-        #
+        # warn if the user has given mutual conflicting options
+        def sanity_check
+          if vault_item && (vault_list || vault_file)
+            ui.warn "--vault-item given with --vault-list or --vault-file, ignoring the latter"
+          end
+
+          if vault_list && vault_file
+            ui.warn "--vault-list given with --vault-file, ignoring the latter"
+          end
+        end
+
         # @return [String] string with serialized JSON representing the chef vault items
-        #
         def vault_list
           knife_config[:vault_list]
         end
 
-        #
         # @return [String] JSON text in a file representing the chef vault items
-        #
         def vault_file
           knife_config[:vault_file]
         end
 
-        #
+        # @return [Hash] Ruby object representing the chef vault items to create
+        def vault_item
+          knife_config[:vault_item]
+        end
+
         # Helper to return a ruby object represeting all the data bags and items
-        # to update via chef-vault
+        # to update via chef-vault.
         #
         # @return [Hash] deserialized ruby hash with all the vault items
-        #
         def vault_json
           @vault_json ||=
             begin
-              json = vault_list ? vault_list : File.read(vault_file)
-              Chef::JSONCompat.from_json(json)
+              if vault_item
+                vault_item
+              else
+                json = vault_list ? vault_list : File.read(vault_file)
+                Chef::JSONCompat.from_json(json)
+              end
             end
         end
 
-        #
         # Update an individual vault item and save it
         #
         # @param vault [String] name of the chef-vault encrypted data bag
         # @param item [String] name of the chef-vault encrypted item
-        #
         def update_vault(vault, item)
+          require_chef_vault!
           vault_item = ChefVault::Item.load(vault, item)
           vault_item.clients("name:#{node_name}")
           vault_item.save
         end
 
-        #
         # Helper used to spin waiting for the client to appear in search.
         #
         # @return [Boolean] true if the client is searchable
-        #
         def wait_for_client
           sleep 1
           !Chef::Search::Query.new.search(:client, "name:#{node_name}")[0]
         end
+
+        # Helper to very lazily require the chef-vault gem
+        def require_chef_vault!
+          @require_chef_vault ||=
+            begin
+              require 'chef-vault'
+              true
+            rescue LoadError
+              raise "Knife bootstrap cannot configure chef vault items when the chef-vault gem is not installed"
+            end
+        end
+
       end
     end
   end

@@ -119,6 +119,13 @@ describe Chef::Knife::Bootstrap::ClientBuilder do
       expect(reg_double).to receive(:run)
       client_builder.run
     end
+
+  end
+
+  context "#client_path" do
+    it "has a public API for the temporary client.pem file" do
+      expect(client_builder.client_path).to match(/#{node_name}.pem/)
+    end
   end
 
   context "#create_node!" do

@@ -27,10 +27,16 @@ class Chef
     class Bootstrap < Knife
       class ClientBuilder
 
+        # @return [Hash] knife merged config, typically @config
         attr_accessor :knife_config
+        # @return [Hash] chef config object
         attr_accessor :chef_config
+        # @return [Chef::Knife::UI] ui object for output
         attr_accessor :ui
 
+        # @param knife_config [Hash] Hash of knife config settings
+        # @param chef_config [Hash] Hash of chef config settings
+        # @param ui [Chef::Knife::UI] UI object for output
         def initialize(knife_config: {}, chef_config: {}, ui: nil)
           @knife_config = knife_config
           @chef_config  = chef_config
