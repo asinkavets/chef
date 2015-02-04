@@ -28,7 +28,7 @@ class Chef
       def initialize(name, run_context=nil)
         super
         @resource_name = :chef_gem
-        @compile_time = nil
+        @compile_time = Chef::Config[:chef_gem_compile_time]
         @gem_binary = RbConfig::CONFIG['bindir'] + "/gem"
       end
 
